@@ -1,0 +1,169 @@
+
+/*
+  Simple Lathe Controller based on Arduino Nano and HCTL2000
+  
+  Author:
+  Log:  HdW, March 2019 - Draft 1, Tested
+  8 Bit mode working with glass scales 20um grating /4 quad mode = 0.005um
+  ToDo:   
+            
+  
+*/ 
+
+
+#define __12BIT_MODE  0 // could not get the 12bit mode to count reliable
+#define  __8BIT_MODE  1
+
+#define d2 2 // PD2  14
+#define d3 3 // PD3  13
+#define d4 4 // PD4  12
+#define d5 5 // PD5  11
+#define d6 6 // PD6  10
+#define d7 7 // PD7  9
+
+#define d0 0 // PC0 1
+#define d1 1 // PC1 15
+
+#define swA 16 // PC2
+#define swB 17 // PC3
+#define swC 18 // PC4 
+#define swD 19 // PC5
+
+#define res 8 //PB0  // not used in Mode C. Manual Pg 9
+#define clk 9 // PB1 2
+// sel to 5v, not used in 8 bit mode 
+
+#define oe1 10 //PB2 4
+
+//#define oe2 11 //PB3
+//#define sel 12 //PB4 
+//#define xxx 13 //PB5
+
+static int16_t count[3] = {0x0,0x0,0x0}; 
+static int8_t a,b,c,d = 0;
+static int8_t _l,_h = 0;
+
+static uint8_t buttons[3] = {0x0,0x0,0x0}; 
+static long  count_position[3] = {0x0,0x0,0x0};
+
+void setup() {     
+   
+   pinMode (A0, INPUT); 
+   pinMode (A1, INPUT); 
+   pinMode (2, INPUT); 
+   pinMode (3, INPUT); 
+   pinMode (4, INPUT); 
+   pinMode (5, INPUT); 
+   pinMode (6, INPUT); 
+   pinMode (7, INPUT); 
+   pinMode (res, OUTPUT); 
+   pinMode (clk, OUTPUT); 
+   pinMode (oe1, OUTPUT); 
+//   pinMode (sel, OUTPUT); 
+ 
+  // Timer1 8 MHz clock out on (OC1A)
+  pinMode (clk, OUTPUT); 
+  TCCR1A = bit (COM1A0);  // toggle OC1A on Compare Match
+  TCCR1B = bit (WGM12) | bit (CS10);   // CTC, no prescaling
+  OCR1A =  0;       // output every cycle
+  
+  // Timer 0 encoder read loop
+  OCR0A = 0x01;
+  TCCR0A =   bit (COM1A0); 
+  TCCR0B =   bit (WGM12) | bit (CS10);
+  TIMSK0 |= _BV(OCIE0A);
+
+  Serial.begin (250000);
+
+}
+
+void read_encoder(){
+  // enable counter output
+
+//struct {signed int16t x:12;} s;
+//r = s.x = x;
+
+#if defined (__12BIT_MODE)
+// PORTB &= ~_BV(4); // SEL = 0
+#endif
+  PORTB &= ~_BV(2); //  OE = 0
+  
+  count[0] = 0;
+
+#if defined (__12BIT_MODE)
+  // Extend sign <<12 get sign bit; >>4 correct offset ( (count[0]^12)-12;
+ //  count[0]  = ((((PIND & 0b11111100) | ( PINC & 0b00000011) ))<<12)>>4 ;
+
+#endif
+
+  PORTB |= _BV(4); // SEL = 1
+   
+  count[0] |=  (uint8_t) ((PIND & 0b11111100) | ( PINC & 0b00000011) );
+ 
+  
+  PORTB |= _BV(2);// OE = 1
+ // PORTB &=   ~_BV(0); // reset low
+  PORTB |= _BV(0);  // reset high
+   
+}
+
+SIGNAL(TIMER0_COMPA_vect)
+//SIGNAL(TIMER2_COMPA_vect)
+{
+  static unsigned int CtDiv;
+  
+  read_encoder();
+
+ // PORTB ^= _BV(PB2); 
+  static int16_t diff = 0;
+ 
+  diff =  count[1] -count[0]; // get difference since last run
+
+ /* 8 bit mode */
+//#if defined (__8BIT_MODE)
+  if(diff > 127) diff -= 255; else // if rollover pos to deg  oldval -(-new)) > +127 sub full range
+  if(diff < -127) diff += 255;     // if rollover neg to pos  -oldval -(+new)) < -127 add full range
+//#else if defined (__12BIT_MODE)
+ /* 12 bit mode */
+//  if(diff > 2047) diff -= 4096; else
+//  if(diff < -2047) diff += 4096; 
+//#endif
+ 
+  count_position[0] +=  diff;
+  
+  count[1] = count[0]; //store current value
+
+}
+
+void disp_pos_uart() 
+{
+   static unsigned char svcount[7]  = ""; 
+   static unsigned char n ;
+ 
+   if ( n == 0 )
+      sprintf(svcount, "%d\n",count_position[0]);
+   
+   if ((UCSR0A & (1 << UDRE0))) {
+    if ( n < 7 ) {
+        UDR0 = svcount[n++];
+    } else {
+        n = 0;
+      
+    }
+   }
+}
+   
+void loop() {
+  // read_encoder();
+  // count_position[0] += count[0];
+   signed int x = 0xefff;
+   Serial.print(count_position[0]); 
+   Serial.print("  ");
+   Serial.print(b,DEC);
+   Serial.print("  ");
+   Serial.println(b,BIN);
+   delay(100);
+   
+
+  
+}
